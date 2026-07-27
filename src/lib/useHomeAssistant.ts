@@ -1,106 +1,56 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { HaConnection, HaError } from './ha/connection'
+import type { HaError } from './ha/hass'
+import { toHaError } from './ha/hass'
 import type { HassEntity, SceneSummary } from './ha/types'
+import { fetchRegistries } from './ha/registry'
+import type { HassStore } from './ha/store'
+import { useHassStore } from './ha/store'
 import type { Registries } from './accessories'
 import { buildAccessories, groupByFloorAndArea } from './accessories'
 import type { AccessoryKind } from './capabilities'
-import { loadKindOverrides, saveKindOverrides, type Settings } from './storage'
+import { loadKindOverrides, saveKindOverrides } from './storage'
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'ready' | 'error'
+export type LoadStatus = 'loading' | 'ready' | 'error'
 
 const EMPTY_REGISTRIES: Registries = { floors: [], areas: [], devices: [], entities: [] }
 
-export function useHomeAssistant(settings: Settings | null) {
-  const [status, setStatus] = useState<ConnectionStatus>('idle')
+/**
+ * Entity states change far faster than anyone can read them, so the newest
+ * `hass` is sampled on a timer rather than followed render-for-render.
+ */
+const STATE_SAMPLE_MS = 750
+
+export function useHomeAssistant() {
+  const store = useHassStore()
+  const [status, setStatus] = useState<LoadStatus>('loading')
   const [error, setError] = useState<HaError | null>(null)
-  const [states, setStates] = useState<Record<string, HassEntity>>({})
+  const [states, setStates] = useState<Record<string, HassEntity>>(() => store.current.states)
   const [registries, setRegistries] = useState<Registries>(EMPTY_REGISTRIES)
   const [kindOverrides, setKindOverrides] = useState<Record<string, AccessoryKind>>(() =>
     loadKindOverrides(),
   )
 
-  const connectionRef = useRef<HaConnection | null>(null)
-  // State change events arrive far faster than anyone can read them, so they
-  // are buffered and flushed on a timer instead of re-rendering per event.
-  const pendingStates = useRef<Record<string, HassEntity>>({})
-  const flushTimer = useRef<number | null>(null)
+  useStateSampling(store, setStates)
 
   useEffect(() => {
-    if (!settings) {
-      connectionRef.current?.close()
-      connectionRef.current = null
-      setStatus('idle')
-      setStates({})
-      setRegistries(EMPTY_REGISTRIES)
-      return
-    }
-
     let cancelled = false
-    let unsubscribe: (() => void) | null = null
-
-    setStatus('connecting')
-    setError(null)
     ;(async () => {
       try {
-        const connection = await HaConnection.connect(settings.baseUrl, settings.token)
-        if (cancelled) {
-          connection.close()
-          return
-        }
-        connectionRef.current = connection
-        connection.onDisconnect = (reason) => {
-          if (cancelled) return
-          setStatus('error')
-          setError(new HaError(reason, 'network'))
-        }
-
-        const [allStates, floors, areas, devices, entities] = await Promise.all([
-          connection.getStates(),
-          connection.getFloors(),
-          connection.getAreas(),
-          connection.getDevices(),
-          connection.getEntityRegistry(),
-        ])
+        const next = await fetchRegistries(store.current)
         if (cancelled) return
-
-        setStates(Object.fromEntries(allStates.map((entity) => [entity.entity_id, entity])))
-        setRegistries({ floors, areas, devices, entities })
+        setRegistries(next)
+        setStates(store.current.states)
         setStatus('ready')
-
-        unsubscribe = await connection.subscribeEvents('state_changed', (event) => {
-          const next = event?.data?.new_state as HassEntity | undefined
-          if (!next) return
-          pendingStates.current[next.entity_id] = next
-          if (flushTimer.current != null) return
-          flushTimer.current = window.setTimeout(() => {
-            flushTimer.current = null
-            const buffered = pendingStates.current
-            pendingStates.current = {}
-            setStates((current) => ({ ...current, ...buffered }))
-          }, 750)
-        })
       } catch (caught) {
         if (cancelled) return
-        setError(
-          caught instanceof HaError
-            ? caught
-            : new HaError(String(caught), 'unknown'),
-        )
+        setError(toHaError(caught, 'Could not read your Home Assistant registries.'))
         setStatus('error')
       }
     })()
-
     return () => {
       cancelled = true
-      unsubscribe?.()
-      if (flushTimer.current != null) {
-        clearTimeout(flushTimer.current)
-        flushTimer.current = null
-      }
-      connectionRef.current?.close()
-      connectionRef.current = null
     }
-  }, [settings])
+  }, [store])
 
   const setKindOverride = useCallback((entityId: string, kind: AccessoryKind | null) => {
     setKindOverrides((current) => {
@@ -138,26 +88,19 @@ export function useHomeAssistant(settings: Settings | null) {
   }, [stateList])
 
   const refresh = useCallback(async () => {
-    const connection = connectionRef.current
-    if (!connection) return
-    const [allStates, floorList, areas, devices, entities] = await Promise.all([
-      connection.getStates(),
-      connection.getFloors(),
-      connection.getAreas(),
-      connection.getDevices(),
-      connection.getEntityRegistry(),
-    ])
-    setStates(Object.fromEntries(allStates.map((entity) => [entity.entity_id, entity])))
-    setRegistries({ floors: floorList, areas, devices, entities })
-  }, [])
+    setRegistries(await fetchRegistries(store.current))
+    setStates(store.current.states)
+  }, [store])
 
   const callService = useCallback(
-    (domain: string, service: string, data?: Record<string, unknown>) => {
-      const connection = connectionRef.current
-      if (!connection) throw new HaError('Not connected to Home Assistant.', 'network')
-      return connection.callService(domain, service, data)
+    async (domain: string, service: string, data?: Record<string, unknown>) => {
+      try {
+        return await store.current.callService(domain, service, data)
+      } catch (caught) {
+        throw toHaError(caught, `Home Assistant refused ${domain}.${service}.`)
+      }
     },
-    [],
+    [store],
   )
 
   return {
@@ -173,4 +116,41 @@ export function useHomeAssistant(settings: Settings | null) {
     refresh,
     callService,
   }
+}
+
+/**
+ * Copies `hass.states` into React state at most once per sample window. The
+ * trailing edge is what matters here — the value that should win is the last
+ * one in the window, not the first.
+ */
+function useStateSampling(
+  store: HassStore,
+  setStates: (states: Record<string, HassEntity>) => void,
+) {
+  const timer = useRef<number | null>(null)
+
+  useEffect(() => {
+    const unsubscribe = store.subscribe(() => {
+      if (timer.current != null) return
+      timer.current = window.setTimeout(() => {
+        timer.current = null
+        setStates(store.current.states)
+      }, STATE_SAMPLE_MS)
+    })
+    return () => {
+      unsubscribe()
+      if (timer.current != null) {
+        clearTimeout(timer.current)
+        timer.current = null
+      }
+    }
+  }, [store, setStates])
+}
+
+/** Re-renders only when Home Assistant collapses or expands its sidebar. */
+export function useNarrow(): boolean {
+  const store = useHassStore()
+  const [narrow, setNarrow] = useState(() => store.panel.narrow)
+  useEffect(() => store.subscribe(() => setNarrow(store.panel.narrow)), [store])
+  return narrow
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { SceneSummary } from '../lib/ha/types'
 import { HaIcon, UiIcon } from './Icon'
+import { SidebarToggle } from './SidebarToggle'
 import { Banner } from './ui'
 
 export function SceneList({
@@ -8,13 +9,11 @@ export function SceneList({
   onOpen,
   onCreate,
   onRefresh,
-  onSettings,
 }: {
   scenes: SceneSummary[]
   onOpen: (scene: SceneSummary) => void
   onCreate: () => void
   onRefresh: () => void
-  onSettings: () => void
 }) {
   const [query, setQuery] = useState('')
 
@@ -32,6 +31,7 @@ export function SceneList({
   return (
     <div className="screen">
       <header className="topbar">
+        <SidebarToggle />
         <div className="topbar__main">
           <h1>Scenes</h1>
           <p className="topbar__subtitle">
@@ -41,9 +41,6 @@ export function SceneList({
         <div className="topbar__actions">
           <button type="button" className="icon-button" onClick={onRefresh} aria-label="Refresh">
             <UiIcon name="refresh" size={22} />
-          </button>
-          <button type="button" className="icon-button" onClick={onSettings} aria-label="Settings">
-            <UiIcon name="settings" size={22} />
           </button>
         </div>
       </header>

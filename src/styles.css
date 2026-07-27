@@ -1,8 +1,13 @@
 /* ---------------------------------------------------------------------------
    Tokens
+
+   This stylesheet is adopted into the panel's shadow root (see entrypoint.tsx),
+   so the host element stands in for what used to be :root. Nothing here can
+   reach the document, and nothing in Home Assistant's frontend can reach in.
 --------------------------------------------------------------------------- */
 
-:root {
+:host {
+  display: block;
   --bg: #f2f2f7;
   --bg-elevated: #ffffff;
   --bg-sunken: #e9e9ef;
@@ -28,43 +33,12 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  color-scheme: light dark;
-}
+  color-scheme: light;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --bg-elevated: #1c1c1e;
-    --bg-sunken: #2c2c2e;
-    --text: #f5f5f7;
-    --text-muted: #9a9aa4;
-    --text-faint: #6e6e76;
-    --line: rgba(235, 235, 245, 0.14);
-    --line-strong: rgba(235, 235, 245, 0.26);
-    --accent: #ffb62e;
-    --accent-text: #1a1200;
-    --danger: #ff6369;
-    --success: #35c27a;
-    --warn: #e3a33a;
-    --info: #6ea0ff;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
-    --shadow-lifted: 0 12px 40px rgba(0, 0, 0, 0.6);
-  }
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
   margin: 0;
   padding: 0;
   background: var(--bg);
   color: var(--text);
-}
-
-body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.45;
@@ -72,8 +46,34 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-body.is-locked {
-  overflow: hidden;
+/*
+  Driven by `hass.themes.darkMode` rather than `prefers-color-scheme`, so the
+  panel follows the theme chosen in Home Assistant instead of disagreeing with
+  the frontend it sits inside.
+*/
+:host([data-theme="dark"]) {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --bg-elevated: #1c1c1e;
+  --bg-sunken: #2c2c2e;
+  --text: #f5f5f7;
+  --text-muted: #9a9aa4;
+  --text-faint: #6e6e76;
+  --line: rgba(235, 235, 245, 0.14);
+  --line-strong: rgba(235, 235, 245, 0.26);
+  --accent: #ffb62e;
+  --accent-text: #1a1200;
+  --danger: #ff6369;
+  --success: #35c27a;
+  --warn: #e3a33a;
+  --info: #6ea0ff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lifted: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 h1,
@@ -180,6 +180,13 @@ pre {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Only rendered when Home Assistant has collapsed its sidebar. The negative
+   margin pulls the glyph out to the same optical edge as the heading below. */
+.topbar__menu {
+  margin-left: -6px;
+  flex: none;
 }
 
 .section {

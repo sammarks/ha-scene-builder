@@ -29,9 +29,9 @@ const UI_ICONS = {
   minus: 'minus',
   trash: 'delete-outline',
   refresh: 'refresh',
-  settings: 'cog-outline',
   search: 'magnify',
-  logout: 'logout',
+  // Opens Home Assistant's sidebar when it is collapsed behind a menu button.
+  menu: 'menu',
   alert: 'alert-circle-outline',
   info: 'information-outline',
   eye: 'eye-outline',
