@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "icons": "node scripts/gen-icons.mjs",
+    "brand": "node scripts/gen-brand.mjs",
     "install:local": "node scripts/install-local.mjs"
   },
   "dependencies": {

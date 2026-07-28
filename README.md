@@ -115,6 +115,9 @@ Other scripts:
 - `npm run typecheck` — types only
 - `npm run icons` — regenerate `src/lib/icons.generated.ts` after editing the curated icon list.
   Every name is validated against `@mdi/js`, and only the icons actually used are bundled.
+- `npm run brand` — regenerate the HACS brand assets in `custom_components/scene_builder/brand/`.
+  Needs `rsvg-convert` (`brew install librsvg`); the PNGs are committed, so this is only needed
+  when the artwork changes.
 
 ### The committed bundle
 
@@ -122,3 +125,7 @@ Other scripts:
 the repository and has no way to run a build, so the shipped artifact has to be in git. CI rebuilds
 it on every pull request and fails if the result differs from what is committed — run
 `npm run build` and include the result in your commit.
+
+## License
+
+[MIT](LICENSE) © Sam Marks
