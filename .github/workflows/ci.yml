@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: Typecheck and verify the committed bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # HACS copies files straight out of the repository and cannot run a build,
+      # so custom_components/scene_builder/frontend/entrypoint.js is committed.
+      # A stale bundle would ship silently, which is worse than a red build.
+      - name: Rebuild and check the bundle is up to date
+        run: |
+          npm run build
+          if ! git diff --quiet -- custom_components/scene_builder/frontend; then
+            echo "::error::The committed frontend bundle is out of date."
+            echo "Run 'npm run build' and commit custom_components/scene_builder/frontend/."
+            git diff --stat -- custom_components/scene_builder/frontend
+            exit 1
+          fi
+
+  hassfest:
+    name: Validate the integration manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: Validate for HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration

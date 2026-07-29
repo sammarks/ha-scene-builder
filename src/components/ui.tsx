@@ -213,10 +213,16 @@ export function Sheet({
       if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', onKeyDown)
-    document.body.classList.add('is-locked')
+    // This app's stylesheet lives in the panel's shadow root and so cannot
+    // reach <body>. Setting the property directly is the only way to stop the
+    // page behind the sheet from scrolling; the previous value is restored
+    // rather than assumed to be empty, since Home Assistant may be locking
+    // scroll too while one of its own dialogs is open.
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      document.body.classList.remove('is-locked')
+      document.body.style.overflow = previousOverflow
     }
   }, [open])
 

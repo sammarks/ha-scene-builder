@@ -4,8 +4,9 @@ A HomeKit-style scene editor for Home Assistant. Pick accessories grouped by flo
 set exactly what each one should do, and save the result straight into Home Assistant's
 `scenes.yaml` — the same place the built-in scene editor writes to.
 
-It is a single static page with no backend. Your Home Assistant address and token live in your
-browser's local storage, and every request goes directly from your browser to your Home Assistant.
+It installs as a custom integration and adds a **Scene Builder** item to your sidebar. The panel
+is served by your own Home Assistant and talks to it as the signed-in user, so there is no access
+token to create, nothing to keep in local storage, and no CORS configuration.
 
 ## Features
 
@@ -19,7 +20,7 @@ browser's local storage, and every request goes directly from your browser to yo
 - **Icon picker** using Material Design Icons, the same set Home Assistant uses, so the icon you
   pick renders identically in dashboards and the sidebar.
 - **Responsive** — a bottom sheet and two-column tiles on a phone, a dialog and wider grid on
-  desktop. Light and dark themes follow the system setting.
+  desktop. Follows the light or dark theme you have chosen in Home Assistant.
 
 ### Supported accessories
 
@@ -36,75 +37,56 @@ browser's local storage, and every request goes directly from your browser to yo
 
 Anything else in a supported domain falls back to on/off.
 
-## Setup
+## Requirements
 
-### 1. Create a long-lived access token
+- Home Assistant **2024.7** or newer.
+- An **administrator** account. Home Assistant's scene config API is admin-only, so the panel is
+  registered with `require_admin` and will not appear in the sidebar for other users.
 
-1. Open Home Assistant and click your user name at the bottom of the sidebar.
-2. Go to the **Security** tab and scroll to **Long-lived access tokens**.
-3. Choose **Create token**, name it something like "Scene Builder", and confirm.
-4. Copy the token immediately — Home Assistant shows it exactly once.
+## Installation
 
-You can revoke it from the same page at any time, which instantly cuts off this app.
+### Via HACS
 
-### 2. Allow the app to save scenes
+1. In HACS, open the three-dot menu and choose **Custom repositories**.
+2. Add `https://github.com/sammarks/ha-scene-builder` with category **Integration**.
+3. Find **Scene Builder** in the list, choose **Download**, and restart Home Assistant.
+4. Go to **Settings → Devices & Services → Add Integration** and pick **Scene Builder**.
 
-Reading your devices works with no configuration, because that goes over Home Assistant's
-WebSocket API. **Saving** a scene uses the REST config API, which only answers web pages you have
-explicitly allowed. Add this to `configuration.yaml` and restart Home Assistant:
+**Scene Builder** now appears in your sidebar.
 
-```yaml
-http:
-  cors_allowed_origins:
-    - https://YOUR-USERNAME.github.io
-```
+### Manually
 
-Use the origin only — scheme and host, no path. If you already have an `http:` section, add the
-`cors_allowed_origins` key to it instead of repeating the section. The app shows you the exact
-origin to paste on its setup screen.
+Copy `custom_components/scene_builder/` from this repository into your Home Assistant config
+directory so you end up with `config/custom_components/scene_builder/`, restart, then add the
+integration as in step 4 above. The built frontend is committed, so no build step is needed.
 
-Skip this step and you can still browse devices and build a scene, but the save will fail.
+## How it works
 
-### 3. Open the app and connect
+The integration itself is small: it serves the built frontend on a static route and registers a
+`panel_custom` pointing at it. Home Assistant then hands the panel its `hass` object, and the
+editor uses that for everything.
 
-Enter your Home Assistant address (including the port, e.g. `http://homeassistant.local:8123`)
-and the token.
+| Purpose | Transport |
+| --- | --- |
+| Entity states | `hass.states`, sampled every 750 ms rather than followed change-for-change |
+| Floor, area, device and entity registries | `hass.callWS` |
+| `scene.apply`, `scene.reload` | `hass.callService` |
+| Load, save and delete scene configs | `hass.callApi` → `/api/config/scene/config/<id>` |
 
-## The HTTPS problem, and how to avoid it
+Scenes are written in exactly the format Home Assistant's own editor uses, so scenes made here are
+editable there and vice versa. Scenes defined in YAML without an `id` are listed as read-only,
+because Home Assistant's API cannot modify them either.
 
-Browsers refuse to let an **HTTPS** page talk to an **HTTP** server. GitHub Pages is always HTTPS,
-so a GitHub Pages deployment can only reach a Home Assistant that has HTTPS itself — for example a
-Nabu Casa remote URL or your own reverse proxy. The app detects this and tells you rather than
-failing silently.
+The panel renders inside a shadow root. Home Assistant's frontend is built from web components so
+its styles cannot reach in, and this app's stylesheet claims names general enough (`.screen`,
+`.overlay`, `.banner`) that letting it loose on the shared document would be asking for trouble.
 
-If your Home Assistant is plain HTTP on your LAN, use one of these instead:
+### What is stored where
 
-**Serve it from Home Assistant itself (recommended for local installs).** Same origin, so there is
-no CORS step and no mixed-content problem:
-
-```bash
-npm run build
-```
-
-Copy the contents of `dist/` into your Home Assistant config folder at `config/www/scene-builder/`,
-then open `http://homeassistant.local:8123/local/scene-builder/index.html`. You can skip the
-`cors_allowed_origins` step entirely in this setup.
-
-**Or run it locally:**
-
-```bash
-npm run dev
-```
-
-## Deploying to GitHub Pages
-
-1. Push this repository to GitHub.
-2. In **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Push to `main`. The included workflow at `.github/workflows/deploy.yml` builds and publishes.
-
-The build uses a relative base path, so it works from a project page
-(`https://user.github.io/ha-scene-builder/`), a user page, or any static host without
-reconfiguration.
+Scenes go to `scenes.yaml` through Home Assistant. The only thing kept in browser storage is the
+per-entity "treat as" override — the one that decides whether a smart plug is presented as a lamp
+or a heater. That is per browser and per device, and losing it changes nothing about your saved
+scenes, only which controls the editor offers.
 
 ## Development
 
@@ -113,28 +95,37 @@ npm install
 npm run dev
 ```
 
+`npm run dev` serves the harness in `dev/`, which mounts the real panel element against a mock
+`hass` — a small fixture with a couple of floors, rooms and device types. It needs no Home
+Assistant instance and no token, and it exercises the same code path the panel uses in production.
+
+To try it against a real instance:
+
+```bash
+npm run build
+HA_CONFIG=~/homeassistant npm run install:local
+```
+
+Then restart Home Assistant. Custom components are only loaded at startup, so a restart is needed
+after every copy.
+
 Other scripts:
 
-- `npm run build` — typecheck and produce `dist/`
-- `npm run preview` — serve the production build locally
-- `node scripts/gen-icons.mjs` — regenerate `src/lib/icons.generated.ts` after editing the curated
-  icon list. Every name is validated against `@mdi/js`, and only the icons actually used are
-  bundled.
+- `npm run build` — typecheck, then bundle into `custom_components/scene_builder/frontend/`
+- `npm run typecheck` — types only
+- `npm run icons` — regenerate `src/lib/icons.generated.ts` after editing the curated icon list.
+  Every name is validated against `@mdi/js`, and only the icons actually used are bundled.
+- `npm run brand` — regenerate the HACS brand assets in `custom_components/scene_builder/brand/`.
+  Needs `rsvg-convert` (`brew install librsvg`); the PNGs are committed, so this is only needed
+  when the artwork changes.
 
-### How it talks to Home Assistant
+### The committed bundle
 
-| Purpose | Transport | Why |
-| --- | --- | --- |
-| Auth, states, floor/area/device/entity registries, `scene.apply`, `scene.reload` | WebSocket (`/api/websocket`) | The registries have no REST equivalent, and WebSockets are not subject to CORS |
-| Load, save and delete scene configs | REST (`/api/config/scene/config/<id>`) | The only way to persist a scene; this is what needs `cors_allowed_origins` |
+`custom_components/scene_builder/frontend/entrypoint.js` is checked in. HACS copies files out of
+the repository and has no way to run a build, so the shipped artifact has to be in git. CI rebuilds
+it on every pull request and fails if the result differs from what is committed — run
+`npm run build` and include the result in your commit.
 
-Scenes are written in exactly the format Home Assistant's own editor uses, so scenes made here are
-editable there and vice versa. Scenes defined in YAML without an `id` are listed as read-only,
-because Home Assistant's API cannot modify them either.
+## License
 
-## A note on the token
-
-A long-lived access token grants full access to your Home Assistant, so treat it like a password.
-This app sends it only to the address you enter, and stores it only in your own browser. Even so,
-prefer a dedicated token you can revoke, and avoid using this on a shared computer. If you would
-rather not trust a page hosted elsewhere, serve it from your own Home Assistant as described above.
+[MIT](LICENSE) © Sam Marks

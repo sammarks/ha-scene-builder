@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Scene Builder",
+        "description": "Adds a Scene Builder item to your sidebar for editing scenes. There is nothing to configure — scenes are read from and written to the same `scenes.yaml` the built-in editor uses.\n\nThe panel is only visible to administrators, because saving a scene requires administrator rights."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Scene Builder is already set up."
+    }
+  }
+}

@@ -1,11 +1,5 @@
 import type { AccessoryKind } from './capabilities'
 
-export interface Settings {
-  baseUrl: string
-  token: string
-}
-
-const SETTINGS_KEY = 'ha-scene-builder.settings'
 const KINDS_KEY = 'ha-scene-builder.entity-kinds'
 
 function read<T>(key: string, fallback: T): T {
@@ -26,27 +20,14 @@ function write(key: string, value: unknown) {
   }
 }
 
-export function loadSettings(): Settings | null {
-  const settings = read<Settings | null>(SETTINGS_KEY, null)
-  if (!settings?.baseUrl || !settings?.token) return null
-  return settings
-}
-
-export function saveSettings(settings: Settings) {
-  write(SETTINGS_KEY, settings)
-}
-
-export function clearSettings() {
-  try {
-    localStorage.removeItem(SETTINGS_KEY)
-  } catch {
-    /* nothing we can do */
-  }
-}
-
 /**
  * Per-entity presentation overrides — chiefly for smart outlets, where only
  * the owner knows whether a plug runs a lamp or a space heater.
+ *
+ * These live in the browser rather than in Home Assistant, so they are per
+ * device and per user. That is a fair trade for not owning server-side storage,
+ * and nothing is lost if they disappear: the override only changes which
+ * controls are offered, never what a saved scene does.
  */
 export function loadKindOverrides(): Record<string, AccessoryKind> {
   return read<Record<string, AccessoryKind>>(KINDS_KEY, {})
