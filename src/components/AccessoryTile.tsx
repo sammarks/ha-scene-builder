@@ -7,16 +7,19 @@ import {
   type SceneEntityState,
 } from '../lib/capabilities'
 import { lightPreviewColor } from '../lib/color'
-import { HaIcon } from './Icon'
+import { HaIcon, UiIcon } from './Icon'
 
 export function AccessoryTile({
   accessory,
   value,
+  condition,
   onClick,
   onToggle,
 }: {
   accessory: Accessory
   value: SceneEntityState
+  /** A summary of the accessory's conditions, when it has any. */
+  condition?: string
   onClick: () => void
   /** Omitted for accessories with no meaningful on/off, e.g. a fixed sensor. */
   onToggle?: () => void
@@ -34,7 +37,8 @@ export function AccessoryTile({
 
   return (
     <div
-      className={`tile${active ? ' tile--active' : ''}`}
+      className={`tile${active ? ' tile--active' : ''}${condition ? ' tile--conditional' : ''}`}
+      title={condition ? `Only if ${condition}` : undefined}
       style={tint ? ({ '--tile-tint': tint } as React.CSSProperties) : undefined}
     >
       {onToggle ? (
@@ -57,6 +61,12 @@ export function AccessoryTile({
         <small className="tile__value">
           {describeState(accessory.entityId, value, accessory.entity)}
         </small>
+        {condition ? (
+          <small className="tile__condition">
+            <UiIcon name="condition" size={13} />
+            <span>{condition}</span>
+          </small>
+        ) : null}
       </button>
 
       {!accessory.available ? <span className="tile__badge">Offline</span> : null}

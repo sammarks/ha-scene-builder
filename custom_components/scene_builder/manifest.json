@@ -3,11 +3,11 @@
   "name": "Scene Builder",
   "codeowners": ["@sammarks"],
   "config_flow": true,
-  "dependencies": ["config", "frontend", "http", "panel_custom", "scene"],
+  "dependencies": ["config", "frontend", "http", "panel_custom", "scene", "websocket_api"],
   "documentation": "https://github.com/sammarks/ha-scene-builder",
   "integration_type": "service",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/sammarks/ha-scene-builder/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
