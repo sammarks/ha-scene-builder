@@ -13,8 +13,20 @@ import {
   type AccessoryKind,
   type SceneEntityState,
 } from '../lib/capabilities'
+import {
+  conditionProblem,
+  describeConditions,
+  fromHaCondition,
+  METADATA_KEY,
+  readConditionals,
+  toStoredConditions,
+  type EntityConditions,
+} from '../lib/conditions'
+import { evaluateConditions } from '../lib/ha/evaluate'
+import { useHassStore } from '../lib/ha/store'
 import type { HassEntity, SceneConfig } from '../lib/ha/types'
 import { AccessoryEditor } from './AccessoryEditor'
+import { ConditionsEditor } from './ConditionsEditor'
 import { AccessoryPicker } from './AccessoryPicker'
 import { AccessoryTile, MissingTile } from './AccessoryTile'
 import { HaIcon, UiIcon } from './Icon'
@@ -48,11 +60,29 @@ export function SceneEditor({
 }) {
   const [name, setName] = useState(initialConfig?.name ?? '')
   const [icon, setIcon] = useState<string | undefined>(initialConfig?.icon)
-  const [entities, setEntities] = useState<Record<string, SceneEntityState>>(() =>
-    Object.fromEntries(
+  const store = useHassStore()
+  // Conditional accessories live in the scene's metadata, not its entities —
+  // see lib/conditions.ts. In the editor both kinds are just accessories.
+  const [initialConditionals] = useState(() => readConditionals(initialConfig?.metadata))
+  const [entities, setEntities] = useState<Record<string, SceneEntityState>>(() => ({
+    ...Object.fromEntries(
       Object.entries(initialConfig?.entities ?? {}).map(([entityId, value]) => [
         entityId,
         normalizeSceneEntity(value),
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(initialConditionals).map(([entityId, entry]) => [
+        entityId,
+        normalizeSceneEntity(entry.state),
+      ]),
+    ),
+  }))
+  const [conditions, setConditions] = useState<Record<string, EntityConditions>>(() =>
+    Object.fromEntries(
+      Object.entries(initialConditionals).map(([entityId, entry]) => [
+        entityId,
+        { match: entry.match ?? 'all', conditions: entry.conditions.map(fromHaCondition) },
       ]),
     ),
   )
@@ -164,24 +194,94 @@ export function SceneEditor({
         delete next[entityId]
         return next
       })
+      setConditions((current) => {
+        if (!current[entityId]) return current
+        const next = { ...current }
+        delete next[entityId]
+        return next
+      })
       setEditing(null)
     },
     [mutate],
   )
 
+  const updateConditions = useCallback((entityId: string, value: EntityConditions) => {
+    setConditions((current) => ({ ...current, [entityId]: value }))
+    setDirty(true)
+    setMessage(null)
+  }, [])
+
+  /** Accessories that actually have conditions; an emptied list means unconditional. */
+  const activeConditions = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(conditions).filter(
+          ([entityId, value]) => value.conditions.length && entities[entityId],
+        ),
+      ),
+    [conditions, entities],
+  )
+
   const buildConfig = useCallback((): SceneConfig => {
-    const config: SceneConfig = {
-      name: name.trim(),
-      entities: Object.fromEntries(
-        Object.entries(entities).map(([entityId, value]) => [
+    const sceneEntities: SceneConfig['entities'] = {}
+    // Start from what was there so metadata written by Home Assistant's own
+    // editor (e.g. `entity_only`) survives, minus accessories no longer in the scene.
+    const metadata: Record<string, any> = {}
+    for (const [entityId, meta] of Object.entries(initialConfig?.metadata ?? {})) {
+      if (!entities[entityId] || !meta || typeof meta !== 'object') continue
+      const { [METADATA_KEY]: _ours, ...rest } = meta as Record<string, any>
+      if (Object.keys(rest).length) metadata[entityId] = rest
+    }
+
+    for (const [entityId, value] of Object.entries(entities)) {
+      const sceneValue = toSceneEntityValue(entityId, value)
+      const conditional = activeConditions[entityId]
+      if (conditional) {
+        // Kept out of `entities` so Home Assistant never sets it unconditionally;
+        // the integration applies it when the conditions pass.
+        metadata[entityId] = {
+          ...metadata[entityId],
+          [METADATA_KEY]: { state: sceneValue, ...toStoredConditions(conditional) },
+        }
+      } else {
+        sceneEntities[entityId] = sceneValue
+      }
+    }
+
+    const config: SceneConfig = { name: name.trim(), entities: sceneEntities }
+    if (icon) config.icon = icon
+    if (Object.keys(metadata).length) config.metadata = metadata
+    return config
+  }, [name, icon, entities, activeConditions, initialConfig])
+
+  const nameFor = useCallback(
+    (entityId: string) => accessoryById.get(entityId)?.fullName ?? entityId,
+    [accessoryById],
+  )
+
+  /**
+   * Validates every accessory's conditions with Home Assistant and returns
+   * which ones pass right now. Throws with a readable message if any are invalid.
+   */
+  const checkConditions = useCallback(async () => {
+    for (const [entityId, value] of Object.entries(activeConditions)) {
+      const problem = value.conditions.map(conditionProblem).find(Boolean)
+      if (problem) throw new Error(`${nameFor(entityId)}: ${problem}`)
+    }
+    const results = await evaluateConditions(
+      store.current,
+      Object.fromEntries(
+        Object.entries(activeConditions).map(([entityId, value]) => [
           entityId,
-          toSceneEntityValue(entityId, value),
+          toStoredConditions(value),
         ]),
       ),
+    )
+    for (const [entityId, result] of Object.entries(results)) {
+      if (result.error) throw new Error(`${nameFor(entityId)}: ${result.error}`)
     }
-    if (icon) config.icon = icon
-    return config
-  }, [name, icon, entities])
+    return results
+  }, [activeConditions, store, nameFor])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -195,6 +295,7 @@ export function SceneEditor({
     setSaving(true)
     setMessage(null)
     try {
+      await checkConditions()
       await onSave(buildConfig())
       setDirty(false)
       setMessage({ tone: 'success', text: 'Saved to Home Assistant.' })
@@ -209,8 +310,23 @@ export function SceneEditor({
     setApplying(true)
     setMessage(null)
     try {
-      await onApply(buildConfig().entities)
-      setMessage({ tone: 'success', text: 'Applied to your home — this did not save anything.' })
+      const results = await checkConditions()
+      const config = buildConfig()
+      const toApply: Record<string, string | Record<string, any>> = { ...config.entities }
+      const skipped: string[] = []
+      for (const [entityId, result] of Object.entries(results)) {
+        if (result.result) toApply[entityId] = toSceneEntityValue(entityId, entities[entityId])
+        else skipped.push(nameFor(entityId))
+      }
+      if (Object.keys(toApply).length) await onApply(toApply)
+      setMessage({
+        tone: 'success',
+        text:
+          'Applied to your home — this did not save anything.' +
+          (skipped.length
+            ? ` Left alone because their conditions are not met right now: ${skipped.join(', ')}.`
+            : ''),
+      })
     } catch (error) {
       setMessage({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
     } finally {
@@ -237,6 +353,9 @@ export function SceneEditor({
           <p className="topbar__subtitle">
             {Object.keys(entities).length} accessor
             {Object.keys(entities).length === 1 ? 'y' : 'ies'}
+            {Object.keys(activeConditions).length
+              ? ` · ${Object.keys(activeConditions).length} conditional`
+              : ''}
             {dirty ? ' · unsaved changes' : ''}
           </p>
         </div>
@@ -313,6 +432,11 @@ export function SceneEditor({
                       key={accessory.entityId}
                       accessory={accessory}
                       value={entities[accessory.entityId]}
+                      condition={
+                        activeConditions[accessory.entityId]
+                          ? describeConditions(activeConditions[accessory.entityId], states)
+                          : undefined
+                      }
                       onClick={() => setEditing(accessory.entityId)}
                       onToggle={
                         toggleState(accessory.entity, entities[accessory.entityId])
@@ -409,6 +533,12 @@ export function SceneEditor({
             entity={states[editingAccessory.entityId] ?? editingAccessory.entity}
             value={editingValue}
             onChange={(value) => updateValue(editingAccessory.entityId, value)}
+          />
+
+          <ConditionsEditor
+            value={conditions[editingAccessory.entityId] ?? { match: 'all', conditions: [] }}
+            onChange={(value) => updateConditions(editingAccessory.entityId, value)}
+            states={states}
           />
 
           <div className="sheet__extras">

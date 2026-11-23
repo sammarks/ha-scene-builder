@@ -1,7 +1,8 @@
 """Scene Builder — a HomeKit-style scene editor served from inside Home Assistant.
 
-This integration ships no entities and polls nothing. All it does is put the
-built frontend on an HTTP route and register a sidebar panel that loads it. The
+This integration ships no entities and polls nothing. It puts the built
+frontend on an HTTP route, registers a sidebar panel that loads it, and applies
+per-accessory scene conditions when a scene is activated (see conditions.py). The
 panel receives Home Assistant's `hass` object directly, so the editor talks to
 the running instance as the signed-in user — no access token, and no
 `cors_allowed_origins` entry, because nothing is cross-origin any more.
@@ -18,7 +19,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
+from .conditions import async_register_websocket, async_setup_conditions
 from .const import (
+    DATA_UNSUB,
     DOMAIN,
     PANEL_ICON,
     PANEL_TITLE,
@@ -26,6 +29,7 @@ from .const import (
     STATIC_PATH_REGISTERED,
     STATIC_URL,
     WEBCOMPONENT_NAME,
+    WS_REGISTERED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +74,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         embed_iframe=False,
     )
 
+    if not hass.data.get(WS_REGISTERED):
+        async_register_websocket(hass)
+        hass.data[WS_REGISTERED] = True
+
+    # Applies conditional accessories whenever a scene is activated.
+    hass.data[DATA_UNSUB] = async_setup_conditions(hass)
+
     return True
 
 
@@ -80,4 +91,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     inert without the panel, and a restart clears it.
     """
     frontend.async_remove_panel(hass, PANEL_URL)
+    if unsub := hass.data.pop(DATA_UNSUB, None):
+        unsub()
     return True

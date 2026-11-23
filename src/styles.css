@@ -1555,3 +1555,167 @@ summary:focus-visible {
     animation: spin 1.4s linear infinite !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Conditions
+--------------------------------------------------------------------------- */
+
+.tile__condition {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--info);
+  min-width: 0;
+}
+
+.tile__condition svg {
+  flex: none;
+}
+
+.tile__condition span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.conditions__head h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.conditions__head p {
+  margin: 0;
+}
+
+.condition-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+.condition-card .row {
+  padding: 6px 0;
+}
+
+.condition-card .field__hint {
+  margin: 0;
+}
+
+.condition-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.condition-card__head strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.condition-card__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  color: var(--info);
+}
+
+.condition-card__raw {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  white-space: pre;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12.5px;
+}
+
+.condition-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.condition-inline .select {
+  flex: 1;
+}
+
+.chips--wrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.chips--wrap .chip {
+  min-width: 48px;
+}
+
+.conditions input[type="time"],
+.conditions input[type="number"] {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 16px;
+  font-family: inherit;
+  color-scheme: light dark;
+}
+
+.conditions input[type="number"] {
+  width: 120px;
+  text-align: right;
+}
+
+.condition-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.condition-status svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.condition-status--pass {
+  color: var(--success);
+}
+
+.condition-status--fail,
+.condition-status--warn {
+  color: var(--warn);
+}
+
+.condition-status--error {
+  color: var(--danger);
+}

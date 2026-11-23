@@ -64,6 +64,22 @@ const STATES: HassEntity[] = [
     supported_features: 1,
   }),
   entity('lock.front_door', 'locked', { friendly_name: 'Front Door Lock' }),
+  entity('cover.bedroom_shades', 'closed', {
+    friendly_name: 'Bedroom Shades',
+    current_position: 0,
+    supported_features: 1 | 2 | 4 | 8,
+  }),
+  // Not accessories, but what conditions are built from.
+  entity('sun.sun', 'below_horizon', { friendly_name: 'Sun' }),
+  entity('zone.home', '1', { friendly_name: 'Home', persons: ['person.alex'] }),
+  entity('person.alex', 'home', { friendly_name: 'Alex' }),
+  entity('person.jordan', 'not_home', { friendly_name: 'Jordan' }),
+  entity('sensor.outdoor_temperature', '7.5', {
+    friendly_name: 'Outdoor Temperature',
+    unit_of_measurement: '°C',
+    state_class: 'measurement',
+  }),
+  entity('binary_sensor.workday', 'on', { friendly_name: 'Workday' }),
   entity('scene.movie_night', 'unknown', {
     friendly_name: 'Movie Night',
     id: '1700000000001',
@@ -105,6 +121,7 @@ const REGISTRIES: Record<string, unknown[]> = {
     ['light.kitchen_downlights', 'kitchen'],
     ['climate.upstairs_thermostat', 'bedroom'],
     ['lock.front_door', 'entry'],
+    ['cover.bedroom_shades', 'bedroom'],
   ].map(([entity_id, area_id]) => ({
     entity_id,
     area_id,
@@ -131,7 +148,57 @@ const savedScenes = new Map<string, unknown>([
       },
     },
   ],
+  [
+    '1700000000002',
+    {
+      id: '1700000000002',
+      name: 'Good Morning',
+      icon: 'mdi:weather-sunny',
+      entities: {
+        'light.kitchen_downlights': { state: 'on', brightness: 255 },
+      },
+      metadata: {
+        'cover.bedroom_shades': {
+          scene_builder: {
+            state: { state: 'open', current_position: 100 },
+            match: 'all',
+            conditions: [{ condition: 'state', entity_id: 'sun.sun', state: 'above_horizon' }],
+          },
+        },
+      },
+    },
+  ],
 ])
+
+/**
+ * A rough stand-in for Home Assistant's condition engine: enough to exercise
+ * the editor's live status. Sun and time conditions are not modelled and
+ * always pass.
+ */
+function mockCheck(condition: any, states: Record<string, HassEntity>): boolean {
+  switch (condition?.condition) {
+    case 'and':
+      return condition.conditions.every((c: any) => mockCheck(c, states))
+    case 'or':
+      return condition.conditions.some((c: any) => mockCheck(c, states))
+    case 'not':
+      return !condition.conditions.some((c: any) => mockCheck(c, states))
+    case 'state':
+      return states[condition.entity_id]?.state === String(condition.state)
+    case 'numeric_state': {
+      const value = Number(states[condition.entity_id]?.state)
+      if (Number.isNaN(value)) return false
+      if (condition.above != null && !(value > condition.above)) return false
+      if (condition.below != null && !(value < condition.below)) return false
+      return true
+    }
+    case 'sun':
+    case 'time':
+      return true
+    default:
+      throw new Error(`Unknown condition: ${condition?.condition}`)
+  }
+}
 
 export function createMockHass(onChange: (hass: HomeAssistant) => void): HomeAssistant {
   const states: Record<string, HassEntity> = Object.fromEntries(
@@ -149,6 +216,20 @@ export function createMockHass(onChange: (hass: HomeAssistant) => void): HomeAss
       },
     },
     async callWS<T>(message: Record<string, unknown>): Promise<T> {
+      if (message.type === 'scene_builder/evaluate') {
+        const entries = message.entities as Record<string, { match?: string; conditions: unknown[] }>
+        const results = Object.fromEntries(
+          Object.entries(entries).map(([entityId, entry]) => {
+            try {
+              const group = { condition: entry.match === 'any' ? 'or' : 'and', conditions: entry.conditions }
+              return [entityId, { result: !entry.conditions.length || mockCheck(group, states) }]
+            } catch (error) {
+              return [entityId, { error: (error as Error).message }]
+            }
+          }),
+        )
+        return { results } as T
+      }
       const result = REGISTRIES[String(message.type)]
       if (!result) throw { code: 'unknown_command', message: `Unhandled: ${message.type}` }
       return result as T

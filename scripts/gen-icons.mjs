@@ -49,6 +49,15 @@ const UI_ICONS = {
   pencil: 'pencil-outline',
   dotsGrid: 'dots-grid',
   loading: 'loading',
+  // Scene conditions
+  condition: 'source-branch',
+  sun: 'weather-sunny',
+  sunset: 'weather-sunset',
+  clock: 'clock-outline',
+  account: 'account-outline',
+  gauge: 'gauge',
+  state: 'toggle-switch-outline',
+  code: 'code-braces',
 }
 
 /** Default accessory icons by AccessoryKind. */

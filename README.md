@@ -16,7 +16,10 @@ token to create, nothing to keep in local storage, and no CORS configuration.
   light gets a plain on/off toggle, a three-speed fan gets "2 of 3" rather than "66%", and a
   cover without position support gets Open/Closed instead of a slider.
 - **Snapshot on add.** Adding an accessory captures what it is doing right now, then you fine-tune.
-- **Test before saving** — applies the settings to your home without writing anything.
+- **Conditions per accessory** — "open the bedroom shades, but only if the sun is up". See
+  [Conditions](#conditions).
+- **Test before saving** — applies the settings to your home without writing anything, and tells
+  you which conditional accessories it left alone.
 - **Icon picker** using Material Design Icons, the same set Home Assistant uses, so the icon you
   pick renders identically in dashboards and the sidebar.
 - **Responsive** — a bottom sheet and two-column tiles on a phone, a dialog and wider grid on
@@ -36,6 +39,57 @@ token to create, nothing to keep in local storage, and no CORS configuration.
 | Humidifiers, water heaters, valves | Mode, target humidity, temperature, position |
 
 Anything else in a supported domain falls back to on/off.
+
+## Conditions
+
+Home Assistant scenes have no conditions of their own: activating one sets every entity in it.
+Scene Builder adds them per accessory. Open an accessory in a scene and choose **Add a condition**:
+
+| Condition | Example |
+| --- | --- |
+| Sun is up / Sun is down | Open the shades only once it's light out |
+| Before or after sunrise / sunset, with an offset | Porch light on only from 30 min before sunset |
+| Time of day and day of week | Coffee maker on only before 9 AM on weekdays |
+| Someone is home / Nobody is home | Don't start music in an empty house |
+| A specific person is home or away | Bedroom lamp only if Alex is home |
+| An accessory or sensor is in a state | Only if the TV is off, the alarm is disarmed, it's a workday… |
+| A sensor reading is above or below | Close the blinds only when it's above 25 °C outside |
+
+Combine several with **All are true** or **Any is true**. While editing, the sheet shows whether
+the accessory would be set if the scene ran right now.
+
+**How it works.** An accessory with conditions is kept out of the scene's `entities`, so Home
+Assistant never sets it unconditionally. It is stored in the scene's `metadata` instead, which Home
+Assistant keeps but otherwise ignores:
+
+```yaml
+- id: "1700000000002"
+  name: Good Morning
+  entities:
+    light.kitchen: {state: "on", brightness: 255}
+  metadata:
+    cover.bedroom_shades:
+      scene_builder:
+        state: {state: open, current_position: 100}
+        match: all
+        conditions:
+          - condition: state
+            entity_id: sun.sun
+            state: above_horizon
+```
+
+When the scene is activated, from anywhere (a dashboard, an automation, a voice assistant or
+HomeKit), the integration notices and checks each accessory's conditions with Home Assistant's own
+condition engine. It applies the accessories whose conditions pass. Conditions use the same format
+as an automation's `conditions:` block, so a condition written by hand (a template, a zone) is kept
+and evaluated too. The editor just shows it as a custom condition.
+
+Caveats:
+
+- Conditional accessories only work while the Scene Builder integration is installed and loaded.
+- Home Assistant's built-in scene editor doesn't know about them. It won't show them, and saving
+  the scene there may drop them.
+- A `transition` passed to `scene.turn_on` isn't carried over to the conditional accessories.
 
 ## Requirements
 
@@ -62,8 +116,9 @@ integration as in step 4 above. The built frontend is committed, so no build ste
 
 ## How it works
 
-The integration itself is small: it serves the built frontend on a static route and registers a
-`panel_custom` pointing at it. Home Assistant then hands the panel its `hass` object, and the
+The integration itself is small: it serves the built frontend on a static route, registers a
+`panel_custom` pointing at it, and watches for scene activations to apply
+[conditional accessories](#conditions). Home Assistant then hands the panel its `hass` object, and the
 editor uses that for everything.
 
 | Purpose | Transport |
@@ -71,6 +126,7 @@ editor uses that for everything.
 | Entity states | `hass.states`, sampled every 750 ms rather than followed change-for-change |
 | Floor, area, device and entity registries | `hass.callWS` |
 | `scene.apply`, `scene.reload` | `hass.callService` |
+| Check conditions (live status, Test, validation on save) | `hass.callWS` → `scene_builder/evaluate` |
 | Load, save and delete scene configs | `hass.callApi` → `/api/config/scene/config/<id>` |
 
 Scenes are written in exactly the format Home Assistant's own editor uses, so scenes made here are
@@ -108,6 +164,13 @@ HA_CONFIG=~/homeassistant npm run install:local
 
 Then restart Home Assistant. Custom components are only loaded at startup, so a restart is needed
 after every copy.
+
+Integration tests run against a real Home Assistant core:
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```
 
 Other scripts:
 
